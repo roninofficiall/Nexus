@@ -51,7 +51,7 @@ final class CameraTrackingPreview: UIView {
     private let previewLayer = AVCaptureVideoPreviewLayer()
     private let videoOutput = AVCaptureVideoDataOutput()
 
-    private weak var tracker: HandTracker?
+    private let tracker: HandTracker
 
     init(tracker: HandTracker) {
         self.tracker = tracker
