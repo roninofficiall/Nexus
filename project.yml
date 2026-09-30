@@ -17,5 +17,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.ronin.Nexus
         SWIFT_VERSION: 5.0
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSCameraUsageDescription: "Nexus potrzebuje dostępu do kamery do wizualnego trackingu."
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGNING_REQUIRED: NO
