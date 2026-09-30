@@ -9,18 +9,15 @@ struct HandTrackingView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                CameraViewWithFrames(tracker: tracker)
+                CameraTrackingView(tracker: tracker)
                     .ignoresSafeArea()
 
-                HandOverlay(
-                    points: tracker.points,
+                HandSkeletonOverlay(
+                    hands: tracker.hands,
                     size: geometry.size
                 )
                 .allowsHitTesting(false)
             }
-        }
-        .onAppear {
-            tracker.start()
         }
         .onDisappear {
             tracker.stop()
@@ -28,7 +25,9 @@ struct HandTrackingView: View {
     }
 }
 
-struct CameraViewWithFrames: UIViewRepresentable {
+// MARK: - Camera
+
+struct CameraTrackingView: UIViewRepresentable {
 
     let tracker: HandTracker
 
@@ -157,25 +156,41 @@ final class CameraTrackingPreview: UIView {
     }
 }
 
-final class HandTracker: NSObject, ObservableObject,
+// MARK: - Hand Tracking
+
+final class HandTracker: NSObject,
+                          ObservableObject,
                           AVCaptureVideoDataOutputSampleBufferDelegate {
 
-    @Published private(set) var points: [CGPoint] = []
+    struct TrackedHand: Identifiable {
+        let id = UUID()
+        let points: [CGPoint]
+    }
+
+    @Published private(set) var hands: [TrackedHand] = []
 
     let queue = DispatchQueue(
         label: "nexus.handtracking",
         qos: .userInitiated
     )
 
+    // Jeden request — używamy go ponownie.
+    private let handRequest = VNDetectHumanHandPoseRequest()
+
     private let sequenceHandler = VNSequenceRequestHandler()
 
     private var lastDetectionTime: CFTimeInterval = 0
 
-    func start() {}
+    override init() {
+        super.init()
+
+        handRequest.maximumHandCount = 2
+    }
 
     func stop() {
+
         DispatchQueue.main.async { [weak self] in
-            self?.points = []
+            self?.hands = []
         }
     }
 
@@ -187,8 +202,7 @@ final class HandTracker: NSObject, ObservableObject,
 
         let now = CACurrentMediaTime()
 
-        // Ograniczamy koszt Vision.
-        // Kamera może działać szybciej niż detekcja.
+        // Vision maksymalnie ~30 analiz/s.
         guard now - lastDetectionTime >= 1.0 / 30.0 else {
             return
         }
@@ -201,82 +215,98 @@ final class HandTracker: NSObject, ObservableObject,
             return
         }
 
-        let request = VNDetectHumanHandPoseRequest()
-
-        request.maximumHandCount = 2
-
         do {
 
             try sequenceHandler.perform(
-                [request],
+                [handRequest],
                 on: pixelBuffer,
                 orientation: .right
             )
 
-            guard let observation =
-                    request.results?.first
+            guard let observations =
+                    handRequest.results
             else {
-                updatePoints([])
+                publish([])
                 return
             }
 
-            let recognizedPoints =
-                try observation.recognizedPoints(.all)
+            var detectedHands: [TrackedHand] = []
 
-            let validPoints = recognizedPoints.values
-                .filter { $0.confidence > 0.35 }
-                .map {
-                    CGPoint(
-                        x: $0.location.x,
-                        y: 1.0 - $0.location.y
+            for observation in observations {
+
+                let recognized =
+                    try observation.recognizedPoints(.all)
+
+                let points = recognized.values
+                    .filter {
+                        $0.confidence > 0.35
+                    }
+                    .map {
+                        CGPoint(
+                            x: $0.location.x,
+                            y: 1.0 - $0.location.y
+                        )
+                    }
+
+                if !points.isEmpty {
+                    detectedHands.append(
+                        TrackedHand(points: points)
                     )
                 }
+            }
 
-            updatePoints(validPoints)
+            publish(detectedHands)
 
         } catch {
 
-            updatePoints([])
+            publish([])
         }
     }
 
-    private func updatePoints(_ newPoints: [CGPoint]) {
+    private func publish(
+        _ newHands: [TrackedHand]
+    ) {
 
         DispatchQueue.main.async { [weak self] in
-            self?.points = newPoints
+            self?.hands = newHands
         }
     }
 }
 
-struct HandOverlay: View {
+// MARK: - Skeleton
 
-    let points: [CGPoint]
+struct HandSkeletonOverlay: View {
+
+    let hands: [HandTracker.TrackedHand]
     let size: CGSize
 
     var body: some View {
 
         Canvas { context, canvasSize in
 
-            for point in points {
+            for hand in hands {
 
-                let position = CGPoint(
-                    x: point.x * canvasSize.width,
-                    y: point.y * canvasSize.height
-                )
+                for point in hand.points {
 
-                let circle = Path(
-                    ellipseIn: CGRect(
-                        x: position.x - 5,
-                        y: position.y - 5,
-                        width: 10,
-                        height: 10
+                    let position = CGPoint(
+                        x: point.x * canvasSize.width,
+                        y: point.y * canvasSize.height
                     )
-                )
 
-                context.fill(
-                    circle,
-                    with: .color(.cyan)
-                )
+                    let circle = Path(
+                        ellipseIn: CGRect(
+                            x: position.x - 5,
+                            y: position.y - 5,
+                            width: 10,
+                            height: 10
+                        )
+                    )
+
+                    context.fill(
+                        circle,
+                        with: .color(.cyan)
+                    )
+                }
             }
         }
     }
