@@ -6,7 +6,7 @@ struct ContentView: View {
 
         ZStack {
 
-            CameraView()
+            HandTrackingView()
                 .ignoresSafeArea()
 
             VStack {
